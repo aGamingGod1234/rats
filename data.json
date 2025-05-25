@@ -8,5 +8,9 @@
   },
   "dailyHighscore": 102,
   "activeViewers": 1,
-  "lastReset": "Sun May 25 2025"
+  "lastReset": "Sun May 25 2025",
+  "botSettings": {
+    "leaderboardMessageId": null,
+    "leaderboardChannelId": null
+  }
 }
