@@ -144,4 +144,5 @@ app.get('/', (req, res) => {
   });
 });
 
-server.listen(3000, () => console.log('Rat are spinning!'));
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => console.log(`Rat are spinning on port ${PORT}!`));
