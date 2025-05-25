@@ -1,0 +1,36 @@
+body {
+  background: black;
+  color: white;
+  font-family: monospace;
+  text-align: center;
+}
+
+.header {
+  font-size: 2em;
+  background: white;
+  color: black;
+  padding: 10px;
+}
+
+.rat-container {
+  margin-top: 30px;
+}
+
+#rat {
+  width: 200px;
+  transition: transform 0.1s linear;
+}
+
+.footer {
+  margin-top: 40px;
+}
+
+button {
+  font-family: monospace;
+  background: #222;
+  color: white;
+  border: 1px solid white;
+  padding: 5px 10px;
+  margin: 5px;
+  cursor: pointer;
+}

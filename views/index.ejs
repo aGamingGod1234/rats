@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>spinningrat.online</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: #000;
+            color: #fff;
+            font-family: 'Courier Prime', monospace;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .header {
+            background: #fff;
+            color: #000;
+            text-align: center;
+            padding: 8px;
+            font-size: 18px;
+            font-weight: bold;
+            position: fixed;
+            top: 0;
+            width: 100%;
+            z-index: 2000;
+        }
+        
+        .user-info-top {
+            position: absolute;
+            top: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #4CAF50;
+            text-align: center;
+            font-size: 14px;
+            z-index: 2000;
+        }
+        
+        .rat-timer-top {
+            position: absolute;
+            top: 60px;
+            left: 20px;
+            font-size: 14px;
+            color: #888;
+            z-index: 2000;
+        }
+        
+        .main-container {
+            height: 100vh;
+            padding-top: 120px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+        
+        .rat-container {
+            position: relative;
+            margin-bottom: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center;
+            max-width: 100vw;
+            z-index: 1;
+        }
+        
+        .rat {
+            width: 200px;
+            height: 100px;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 150"><path d="M50 100 Q30 80 40 60 Q50 40 80 50 L200 50 Q230 40 250 60 Q270 80 250 100 L220 120 Q200 130 180 125 L120 125 Q100 130 80 120 Z" fill="%23654321"/><path d="M60 90 Q80 70 120 75 L180 75 Q220 70 240 90 Q220 110 180 105 L120 105 Q80 110 60 90 Z" fill="%238B4513"/><circle cx="90" cy="70" r="3" fill="%23000"/><circle cx="210" cy="70" r="3" fill="%23000"/><path d="M140 85 Q150 90 160 85" stroke="%23000" stroke-width="2" fill="none"/><path d="M250 60 Q280 50 290 60 Q285 70 275 65 Q270 62 265 63" fill="%23654321"/><path d="M280 100 Q290 95 295 105 Q285 115 275 110 Q270 107 275 102" fill="%23654321"/></svg>') no-repeat center;
+            background-size: contain;
+            animation: spin 1s linear infinite;
+            transition: animation-duration 0.3s ease;
+            margin: 5px;
+        }
+        
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            align-items: center;
+        }
+        
+        .control-btn {
+            background: transparent;
+            border: 2px solid #666;
+            color: #fff;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-family: inherit;
+            transition: all 0.3s;
+            position: relative;
+        }
+        
+        .control-btn:hover {
+            border-color: #fff;
+            background: rgba(255,255,255,0.1);
+        }
+        
+        .control-btn.active {
+            border-color: #4CAF50;
+            color: #4CAF50;
+        }
+        
+        .control-btn.rats-mode {
+            border-color: #FF6B6B;
+            color: #FF6B6B;
+        }
+        
+        .control-btn.speed-mode {
+            border-color: #4ECDC4;
+            color: #4ECDC4;
+        }
+        
+        .auth-section {
+            margin-bottom: 20px;
+        }
+        
+        .discord-btn {
+            background: #5865F2;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            text-decoration: none;
+            display: inline-block;
+            font-family: inherit;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        .discord-btn:hover {
+            background: #4752C4;
+        }
+        
+        .user-info {
+            color: #4CAF50;
+            margin-bottom: 10px;
+        }
+        
+        .leaderboard {
+            position: absolute;
+            top: 100px;
+            right: 20px;
+            background: rgba(0,0,0,0.8);
+            padding: 15px;
+            border: 1px solid #333;
+            min-width: 250px;
+            z-index: 2000;
+        }
+        
+        .leaderboard h3 {
+            margin-bottom: 10px;
+            color: #fff;
+            font-size: 16px;
+        }
+        
+        .leaderboard-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+            font-size: 12px;
+            color: #ccc;
+        }
+        
+        .bottom-stats {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            font-size: 12px;
+            color: #888;
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            z-index: 2000;
+        }
+        
+        .bottom-right-info {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            font-size: 12px;
+            color: #888;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            align-items: flex-end;
+            z-index: 2000;
+        }
+        
+        .bottom-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .viewer-stats {
+            margin-top: 10px;
+        }
+        
+        .top-right-link {
+            position: absolute;
+            top: 70px;
+            right: 20px;
+            font-size: 12px;
+            color: #888;
+            text-decoration: underline;
+            z-index: 2000;
+        }
+        
+        .sound-controls {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .hidden {
+            display: none;
+        }
+    </style>
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+    <div class="header">spinningrat.online</div>
+    
+    <!-- User info at top center -->
+    <% if (user) { %>
+        <div class="user-info-top">
+            🧀 Logged in as: <strong><%= user.username %></strong>
+        </div>
+    <% } else { %>
+        <div class="user-info-top">
+            🧀 <a href="/auth/discord" style="color: #5865F2; text-decoration: underline;">Login with Discord</a>
+        </div>
+    <% } %>
+    
+    <!-- Rat timer at top left -->
+    <div class="rat-timer-top">
+        Rat time: <span id="ratTime">0 minutes, 0 seconds</span>
+    </div>
+    
+    <div class="main-container">
+        <div class="rat-container" id="ratContainer">
+            <div class="rat" id="spinningRat"></div>
+        </div>
+        
+        <div class="controls">
+            <% if (user) { %>
+                <button class="control-btn" onclick="window.location.href='/logout'">Logout</button>
+            <% } %>
+            
+            <div class="sound-controls">
+                <button class="control-btn" id="soundBtn">🔊</button>
+            </div>
+        </div>
+        
+        <div class="leaderboard">
+            <h3>Leaderboard</h3>
+            <div id="leaderboardContent">
+                <% leaderboard.forEach((user, index) => { %>
+                    <div class="leaderboard-item">
+                        <span><%= index + 1 %>. <%= user.name %></span>
+                        <span><%= user.points %></span>
+                    </div>
+                <% }) %>
+            </div>
+        </div>
+    </div>
+    
+    <div class="top-right-link">
+        Check out <a href="https://maxwellcat.world" target="_blank" style="color: #888; text-decoration: underline;">maxwellcat world</a>
+    </div>
+    
+    <div class="bottom-stats">
+        <div class="viewer-stats">
+            <div id="viewerCount"><%= activeViewers %> people are watching the rats right now.</div>
+            <div id="dailyScore">Daily highscore: <span id="highscore"><%= dailyHighscore %></span> | Higher score = more rats</div>
+        </div>
+    </div>
+
+    <div class="bottom-right-info">
+        <div><span style="color: #4CAF50;" id="tunesStatus">tunes: on</span></div>
+        <div><a href="https://twotwelve.uk" target="_blank" style="color: #888; text-decoration: underline;">https://twotwelve.uk</a></div>
+        <div class="bottom-controls">
+            <button class="control-btn rats-mode" id="modeToggleBtn">
+                <span id="modeText">Rats Mode</span>
+                <span id="modeInfo">(+10% speed per 10 online)</span>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let currentSpeed = 1;
+        let ratScore = 0;
+        let soundEnabled = true;
+        let startTime = Date.now();
+        let ratCount = 1;
+        let isRatsMode = true; // true for rats mode, false for speed mode
+        let activeViewers = <%= activeViewers %>;
+        
+        // Socket events
+        socket.on('viewerUpdate', (count) => {
+            activeViewers = count;
+            document.getElementById('viewerCount').textContent = `${count} people are watching the rats right now.`;
+            updateModeEffects();
+        });
+        
+        socket.on('highscoreUpdate', (score) => {
+            document.getElementById('highscore').textContent = score;
+        });
+        
+        socket.on('gameData', (data) => {
+            activeViewers = data.activeViewers;
+            document.getElementById('viewerCount').textContent = `${data.activeViewers} people are watching the rats right now.`;
+            document.getElementById('highscore').textContent = data.dailyHighscore;
+            updateLeaderboard(data.leaderboard);
+            updateModeEffects();
+        });
+        
+        // Elements
+        const rat = document.getElementById('spinningRat');
+        const ratContainer = document.getElementById('ratContainer');
+        const soundBtn = document.getElementById('soundBtn');
+        const modeToggleBtn = document.getElementById('modeToggleBtn');
+        const modeText = document.getElementById('modeText');
+        const modeInfo = document.getElementById('modeInfo');
+        
+        // Function to create rat positions in the specified pattern
+        function getRatPosition(index) {
+            if (index === 0) return { x: 0, y: 0 }; // Center rat
+            
+            const layer = Math.ceil((Math.sqrt(4 * index + 1) - 1) / 2);
+            const posInLayer = index - (layer - 1) * layer;
+            const totalInLayer = layer * 4;
+            
+            // Pattern: right, left, up, down
+            const side = Math.floor(posInLayer / layer);
+            const posOnSide = posInLayer % layer;
+            
+            let x = 0, y = 0;
+            
+            switch (side) {
+                case 0: // right
+                    x = layer;
+                    y = posOnSide - Math.floor(layer / 2);
+                    break;
+                case 1: // left
+                    x = -layer;
+                    y = posOnSide - Math.floor(layer / 2);
+                    break;
+                case 2: // up
+                    x = posOnSide - Math.floor(layer / 2);
+                    y = -layer;
+                    break;
+                case 3: // down
+                    x = posOnSide - Math.floor(layer / 2);
+                    y = layer;
+                    break;
+            }
+            
+            return { x: x * 210, y: y * 110 }; // Account for rat size + margin
+        }
+        
+        // Function to update rats display
+        function updateRatsDisplay() {
+            // Clear existing rats
+            ratContainer.innerHTML = '';
+            
+            // Create rats based on current count
+            for (let i = 0; i < ratCount; i++) {
+                const newRat = document.createElement('div');
+                newRat.className = 'rat';
+                newRat.style.animationDuration = `${1/currentSpeed}s`;
+                
+                if (i > 0) {
+                    const pos = getRatPosition(i);
+                    newRat.style.position = 'absolute';
+                    newRat.style.left = `${pos.x}px`;
+                    newRat.style.top = `${pos.y}px`;
+                }
+                
+                ratContainer.appendChild(newRat);
+            }
+        }
+        
+        // Update mode effects based on current viewer count
+        function updateModeEffects() {
+            const bonusLevels = Math.floor(activeViewers / 10);
+            
+            if (isRatsMode) {
+                // Rats mode: add more actual rats
+                ratCount = 1 + bonusLevels;
+                updateRatsDisplay();
+            } else {
+                // Speed mode: increase speed by 10% per 10 viewers
+                currentSpeed = 1 + (bonusLevels * 0.1);
+                // Update all existing rats' speed
+                const allRats = ratContainer.querySelectorAll('.rat');
+                allRats.forEach(rat => {
+                    rat.style.animationDuration = `${1/currentSpeed}s`;
+                });
+            }
+        }
+        
+        // Mode toggle functionality
+        if (modeToggleBtn) {
+            modeToggleBtn.addEventListener('click', () => {
+                isRatsMode = !isRatsMode;
+                
+                if (isRatsMode) {
+                    modeToggleBtn.className = 'control-btn rats-mode';
+                    modeText.textContent = 'Rats Mode';
+                    modeInfo.textContent = '(+1 rat per 10 online)';
+                    // Reset speed to normal for all rats
+                    currentSpeed = 1;
+                    updateRatsDisplay();
+                } else {
+                    modeToggleBtn.className = 'control-btn speed-mode';
+                    modeText.textContent = 'Speed Mode';
+                    modeInfo.textContent = '(+10% speed per 10 online)';
+                    // Reset to single rat
+                    ratCount = 1;
+                    updateRatsDisplay();
+                }
+                
+                // Apply current effects
+                updateModeEffects();
+                
+                ratScore += 1;
+                socket.emit('scoreUpdate', ratScore);
+            });
+        }
+        
+        if (soundBtn) {
+            soundBtn.addEventListener('click', () => {
+                soundEnabled = !soundEnabled;
+                soundBtn.textContent = soundEnabled ? '🔊' : '🔇';
+                document.getElementById('tunesStatus').textContent = `tunes: ${soundEnabled ? 'on' : 'off'}`;
+                document.getElementById('tunesStatus').style.color = soundEnabled ? '#4CAF50' : '#888';
+            });
+        }
+        
+        // Update rat timer
+        function updateRatTimer() {
+            const elapsed = Date.now() - startTime;
+            const minutes = Math.floor(elapsed / 60000);
+            const seconds = Math.floor((elapsed % 60000) / 1000);
+            document.getElementById('ratTime').textContent = `${minutes} minutes, ${seconds} seconds`;
+        }
+        
+        setInterval(updateRatTimer, 1000);
+        
+        function updateLeaderboard(leaderboard) {
+            const content = document.getElementById('leaderboardContent');
+            content.innerHTML = leaderboard.map((user, index) => 
+                `<div class="leaderboard-item">
+                    <span>${index + 1}. ${user.name}</span>
+                    <span>${user.points}</span>
+                </div>`
+            ).join('');
+        }
+        
+        // Initialize mode effects
+        updateRatsDisplay();
+        updateModeEffects();
+    </script>
+</body>
+</html>
