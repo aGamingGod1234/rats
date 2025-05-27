@@ -17,6 +17,7 @@ if (process.env.BOT_TOKEN) config.bot_token = process.env.BOT_TOKEN;
 if (process.env.CALLBACK_URL) config.callback_url = process.env.CALLBACK_URL;
 if (process.env.SESSION_SECRET) config.session_secret = process.env.SESSION_SECRET;
 if (process.env.WEBHOOK_URL) config.webhook_url = process.env.WEBHOOK_URL;
+
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
@@ -32,6 +33,7 @@ const client = new Client({
 
 let leaderboardMessageId = null;
 let leaderboardChannelId = null;
+let botReady = false;
 
 // Load/save data
 const loadData = () => {
@@ -71,22 +73,42 @@ if (gameData.lastReset !== today) {
   saveData(gameData);
 }
 
-passport.serializeUser((user, done) => done(null, user));
-passport.deserializeUser((obj, done) => done(null, obj));
+// Passport configuration with better error handling
+passport.serializeUser((user, done) => {
+  console.log('Serializing user:', user.id);
+  done(null, user);
+});
 
+passport.deserializeUser((obj, done) => {
+  console.log('Deserializing user:', obj.id);
+  done(null, obj);
+});
+
+// Discord OAuth Strategy with better error handling
 passport.use(new DiscordStrategy({
   clientID: config.client_id,
   clientSecret: config.client_secret,
   callbackURL: config.callback_url,
   scope: ['identify']
-}, (accessToken, refreshToken, profile, done) => {
-  return done(null, profile);
+}, async (accessToken, refreshToken, profile, done) => {
+  try {
+    console.log('Discord OAuth successful for user:', profile.username);
+    return done(null, profile);
+  } catch (error) {
+    console.error('Discord OAuth error:', error);
+    return done(error, null);
+  }
 }));
 
+// Session configuration with better security
 app.use(session({
   secret: config.session_secret,
   resave: false,
-  saveUninitialized: false
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production', // Only use secure cookies in production
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }
 }));
 
 app.use(passport.initialize());
@@ -158,14 +180,20 @@ const createLeaderboardEmbed = () => {
 
 // Update leaderboard message
 const updateLeaderboardMessage = async () => {
-  if (!client.isReady() || !leaderboardMessageId || !leaderboardChannelId) return;
+  if (!botReady || !leaderboardMessageId || !leaderboardChannelId) return;
 
   try {
     const channel = await client.channels.fetch(leaderboardChannelId);
-    if (!channel) return;
+    if (!channel) {
+      console.error('Leaderboard channel not found');
+      return;
+    }
 
     const message = await channel.messages.fetch(leaderboardMessageId);
-    if (!message) return;
+    if (!message) {
+      console.error('Leaderboard message not found');
+      return;
+    }
 
     const embed = createLeaderboardEmbed();
     await message.edit({ embeds: [embed] });
@@ -174,15 +202,18 @@ const updateLeaderboardMessage = async () => {
     console.error('Error updating leaderboard:', error);
     // Reset message ID if message not found
     if (error.code === 10008) {
+      console.log('Leaderboard message no longer exists, resetting...');
       leaderboardMessageId = null;
+      leaderboardChannelId = null;
       gameData.botSettings = gameData.botSettings || {};
       gameData.botSettings.leaderboardMessageId = null;
+      gameData.botSettings.leaderboardChannelId = null;
       saveData(gameData);
     }
   }
 };
 
-// Send webhook announcement
+// Send webhook announcement with better error handling
 const sendWebhookAnnouncement = async (username) => {
   if (!config.webhook_url) return;
 
@@ -206,15 +237,18 @@ const sendWebhookAnnouncement = async (username) => {
 
     if (!response.ok) {
       console.error('Webhook error:', response.status, response.statusText);
+    } else {
+      console.log('Webhook announcement sent for:', username);
     }
   } catch (err) {
     console.error('Webhook error:', err);
   }
 };
 
-// Discord Bot Events
-client.once('ready', () => {
+// Discord Bot Events with better error handling
+client.once('ready', async () => {
   console.log(`🤖 Discord bot logged in as ${client.user.tag}!`);
+  botReady = true;
   
   // Register slash commands
   const commands = [
@@ -225,102 +259,150 @@ client.once('ready', () => {
 
   const rest = new REST({ version: '10' }).setToken(config.bot_token);
 
-  (async () => {
-    try {
-      console.log('Started refreshing application (/) commands.');
-      await rest.put(Routes.applicationCommands(config.client_id), { body: commands });
-      console.log('Successfully reloaded application (/) commands.');
-    } catch (error) {
-      console.error(error);
-    }
-  })();
+  try {
+    console.log('Started refreshing application (/) commands.');
+    await rest.put(Routes.applicationCommands(config.client_id), { body: commands });
+    console.log('Successfully reloaded application (/) commands.');
+    
+    // Start leaderboard auto-update after commands are registered
+    setInterval(updateLeaderboardMessage, 60000);
+    console.log('⏰ Leaderboard auto-update started (every 60 seconds)');
+  } catch (error) {
+    console.error('Error registering slash commands:', error);
+  }
 });
 
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
-  if (interaction.commandName === 'leaderboard') {
-    const embed = createLeaderboardEmbed();
-    
-    // If no existing leaderboard message, create one and store it
-    if (!leaderboardMessageId) {
-      const reply = await interaction.reply({ embeds: [embed], fetchReply: true });
-      leaderboardMessageId = reply.id;
-      leaderboardChannelId = interaction.channelId;
+  try {
+    if (interaction.commandName === 'leaderboard') {
+      const embed = createLeaderboardEmbed();
       
-      // Save to data
-      gameData.botSettings = gameData.botSettings || {};
-      gameData.botSettings.leaderboardMessageId = leaderboardMessageId;
-      gameData.botSettings.leaderboardChannelId = leaderboardChannelId;
-      saveData(gameData);
-      
-      console.log('New leaderboard message created and stored');
-    } else {
-      await interaction.reply({ embeds: [embed] });
+      // If no existing leaderboard message, create one and store it
+      if (!leaderboardMessageId) {
+        const reply = await interaction.reply({ embeds: [embed], fetchReply: true });
+        leaderboardMessageId = reply.id;
+        leaderboardChannelId = interaction.channelId;
+        
+        // Save to data
+        gameData.botSettings = gameData.botSettings || {};
+        gameData.botSettings.leaderboardMessageId = leaderboardMessageId;
+        gameData.botSettings.leaderboardChannelId = leaderboardChannelId;
+        saveData(gameData);
+        
+        console.log('New leaderboard message created and stored');
+      } else {
+        await interaction.reply({ embeds: [embed] });
+      }
+    }
+  } catch (error) {
+    console.error('Error handling interaction:', error);
+    if (!interaction.replied) {
+      await interaction.reply({ content: 'An error occurred while processing your command.', ephemeral: true });
     }
   }
 });
 
+// Handle Discord bot errors
+client.on('error', error => {
+  console.error('Discord bot error:', error);
+});
+
+client.on('warn', warning => {
+  console.warn('Discord bot warning:', warning);
+});
+
 // Start the bot if token is provided
 if (config.bot_token && config.bot_token !== 'YOUR_DISCORD_BOT_TOKEN_HERE') {
+  console.log('🔄 Starting Discord bot...');
   client.login(config.bot_token).catch(err => {
     console.error('❌ Failed to login Discord bot:', err.message);
     console.log('🔧 Make sure your bot token is correct in config.json or environment variables');
-  });
-  
-  // Update leaderboard every minute (only after bot is ready)
-  client.once('ready', () => {
-    setInterval(updateLeaderboardMessage, 60000);
-    console.log('⏰ Leaderboard auto-update started (every 60 seconds)');
+    console.log('🔧 Ensure your bot has the following permissions: Send Messages, Use Slash Commands, Embed Links');
   });
 } else {
   console.log('⚠️  No bot token provided, Discord bot functionality disabled');
   console.log('💡 Add BOT_TOKEN environment variable or update config.json to enable Discord features');
 }
 
-app.get('/auth/discord', passport.authenticate('discord'));
+// Auth routes with better error handling
+app.get('/auth/discord', (req, res, next) => {
+  console.log('Discord auth initiated');
+  passport.authenticate('discord')(req, res, next);
+});
+
 app.get('/auth/discord/callback',
-  passport.authenticate('discord', { failureRedirect: '/' }),
-  (req, res) => res.redirect('/')
+  passport.authenticate('discord', { 
+    failureRedirect: '/',
+    failureFlash: false 
+  }),
+  (req, res) => {
+    console.log('Discord auth callback successful for user:', req.user.username);
+    res.redirect('/');
+  }
 );
 
 app.get('/logout', (req, res) => {
-  req.logout(() => res.redirect('/'));
+  const username = req.user ? req.user.username : 'Unknown';
+  req.logout((err) => {
+    if (err) {
+      console.error('Logout error:', err);
+    } else {
+      console.log('User logged out:', username);
+    }
+    res.redirect('/');
+  });
 });
 
+// Main route with better error handling
 app.get('/', (req, res) => {
-  const user = req.user;
-  if (user) {
-    if (!gameData.users[user.id]) {
-      gameData.users[user.id] = { 
-        name: user.username, 
-        points: 0, 
-        loginTime: Date.now() 
-      };
+  try {
+    const user = req.user;
+    if (user) {
+      if (!gameData.users[user.id]) {
+        gameData.users[user.id] = { 
+          name: user.username, 
+          points: 0, 
+          loginTime: Date.now() 
+        };
 
-      // Send webhook announcement for new users
-      sendWebhookAnnouncement(user.username);
-    } else {
-      // Update points based on time spent
-      const minutes = Math.floor((Date.now() - gameData.users[user.id].loginTime) / 60000);
-      gameData.users[user.id].points = Math.max(gameData.users[user.id].points, minutes);
+        console.log('New user registered:', user.username);
+        // Send webhook announcement for new users
+        sendWebhookAnnouncement(user.username);
+      } else {
+        // Update points based on time spent
+        const minutes = Math.floor((Date.now() - gameData.users[user.id].loginTime) / 60000);
+        gameData.users[user.id].points = Math.max(gameData.users[user.id].points, minutes);
+        gameData.users[user.id].loginTime = Date.now(); // Reset login time
+      }
+      saveData(gameData);
     }
-    saveData(gameData);
-  }
 
-  const leaderboard = getLeaderboard();
-  
-  res.render('index', { 
-    user, 
-    leaderboard, 
-    users: gameData.users,
-    dailyHighscore: gameData.dailyHighscore,
-    activeViewers: gameData.activeViewers
-  });
+    const leaderboard = getLeaderboard();
+    
+    res.render('index', { 
+      user, 
+      leaderboard, 
+      users: gameData.users,
+      dailyHighscore: gameData.dailyHighscore,
+      activeViewers: gameData.activeViewers
+    });
+  } catch (error) {
+    console.error('Error in main route:', error);
+    res.status(500).send('Internal Server Error');
+  }
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('Express error:', err);
+  res.status(500).send('Something went wrong!');
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`🐀 Rats are spinning on port ${PORT}!`);
   console.log(`🌐 Visit: http://localhost:${PORT}`);
+  console.log('🔧 Make sure your Discord OAuth2 redirect URI is set to:', config.callback_url);
 });

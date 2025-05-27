@@ -239,15 +239,9 @@
     <div class="header">spinningrat.online</div>
     
     <!-- User info at top center -->
-    <% if (user) { %>
-        <div class="user-info-top">
-            🧀 Logged in as: <strong><%= user.username %></strong>
-        </div>
-    <% } else { %>
-        <div class="user-info-top">
-            🧀 <a href="/auth/discord" style="color: #5865F2; text-decoration: underline;">Login with Discord</a>
-        </div>
-    <% } %>
+    <div class="user-info-top">
+        🧀 <a href="/auth/discord" style="color: #5865F2; text-decoration: underline;">Login with Discord</a>
+    </div>
     
     <!-- Rat timer at top left -->
     <div class="rat-timer-top">
@@ -260,10 +254,6 @@
         </div>
         
         <div class="controls">
-            <% if (user) { %>
-                <button class="control-btn" onclick="window.location.href='/logout'">Logout</button>
-            <% } %>
-            
             <div class="sound-controls">
                 <button class="control-btn" id="soundBtn">🔊</button>
             </div>
@@ -272,12 +262,10 @@
         <div class="leaderboard">
             <h3>Leaderboard</h3>
             <div id="leaderboardContent">
-                <% leaderboard.forEach((user, index) => { %>
-                    <div class="leaderboard-item">
-                        <span><%= index + 1 %>. <%= user.name %></span>
-                        <span><%= user.points %></span>
-                    </div>
-                <% }) %>
+                <div class="leaderboard-item">
+                    <span>1. Loading...</span>
+                    <span>0</span>
+                </div>
             </div>
         </div>
     </div>
@@ -288,8 +276,8 @@
     
     <div class="bottom-stats">
         <div class="viewer-stats">
-            <div id="viewerCount"><%= activeViewers %> people are watching the rats right now.</div>
-            <div id="dailyScore">Daily highscore: <span id="highscore"><%= dailyHighscore %></span> | Higher score = more rats</div>
+            <div id="viewerCount">1 people are watching the rats right now.</div>
+            <div id="dailyScore">Daily highscore: <span id="highscore">0</span> | Higher score = more rats</div>
         </div>
     </div>
 
@@ -312,7 +300,7 @@
         let startTime = Date.now();
         let ratCount = 1;
         let isRatsMode = true; // true for rats mode, false for speed mode
-        let activeViewers = <%= activeViewers %>;
+        let activeViewers = 1;
         
         // Socket events
         socket.on('viewerUpdate', (count) => {
@@ -341,46 +329,107 @@
         const modeText = document.getElementById('modeText');
         const modeInfo = document.getElementById('modeInfo');
         
-        // Function to create rat positions in the specified pattern
+        // Function to get current rotation of an element
+        function getCurrentRotation(element) {
+            const style = window.getComputedStyle(element);
+            const matrix = style.transform || style.webkitTransform || style.mozTransform;
+            
+            if (matrix === 'none' || typeof matrix === 'undefined') {
+                return 0;
+            }
+            
+            const values = matrix.split('(')[1].split(')')[0].split(',');
+            const a = values[0];
+            const b = values[1];
+            let angle = Math.round(Math.atan2(b, a) * (180 / Math.PI));
+            
+            return angle < 0 ? angle + 360 : angle;
+        }
+        
+        // Function to create rat positions in clockwise spiral pattern
+        // Pattern: 7 8 9
+        //          6 1 2
+        //          5 4 3
         function getRatPosition(index) {
-            if (index === 0) return { x: 0, y: 0 }; // Center rat
+            if (index === 0) return { x: 0, y: 0 }; // Center rat (position 1)
             
-            const layer = Math.ceil((Math.sqrt(4 * index + 1) - 1) / 2);
-            const posInLayer = index - (layer - 1) * layer;
-            const totalInLayer = layer * 4;
+            // Calculate which "ring" or layer this rat belongs to
+            let layer = 1;
+            let totalPrevious = 1; // Start with center rat
             
-            // Pattern: right, left, up, down
-            const side = Math.floor(posInLayer / layer);
-            const posOnSide = posInLayer % layer;
+            // Find which layer this index belongs to
+            while (totalPrevious + (layer * 8) < index + 1) {
+                totalPrevious += layer * 8;
+                layer++;
+            }
+            
+            // Position within current layer (0-based)
+            const posInLayer = index - totalPrevious;
+            const sideLength = layer * 2; // Each side has layer*2 positions
             
             let x = 0, y = 0;
             
-            switch (side) {
-                case 0: // right
-                    x = layer;
-                    y = posOnSide - Math.floor(layer / 2);
-                    break;
-                case 1: // left
-                    x = -layer;
-                    y = posOnSide - Math.floor(layer / 2);
-                    break;
-                case 2: // up
-                    x = posOnSide - Math.floor(layer / 2);
-                    y = -layer;
-                    break;
-                case 3: // down
-                    x = posOnSide - Math.floor(layer / 2);
-                    y = layer;
-                    break;
+            // Determine which side of the square and position on that side
+            if (posInLayer < sideLength) {
+                // Top side (moving right): positions 7,8,9 in first layer
+                const step = posInLayer;
+                x = -layer + step;
+                y = -layer;
+            } else if (posInLayer < sideLength * 2) {
+                // Right side (moving down): positions 9,2,3 continuing
+                const step = posInLayer - sideLength;
+                x = layer;
+                y = -layer + step;
+            } else if (posInLayer < sideLength * 3) {
+                // Bottom side (moving left): positions 3,4,5 continuing
+                const step = posInLayer - sideLength * 2;
+                x = layer - step;
+                y = layer;
+            } else {
+                // Left side (moving up): positions 5,6,7 continuing
+                const step = posInLayer - sideLength * 3;
+                x = -layer;
+                y = layer - step;
             }
             
-            return { x: x * 210, y: y * 110 }; // Account for rat size + margin
+            return { x: x * 110, y: y * 60 }; // Spacing between rats
         }
         
-        // Function to update rats display
+        // Function to preserve rotation state when updating rats
+        function preserveRotationState(oldRats, newContainer) {
+            const newRats = newContainer.querySelectorAll('.rat');
+            
+            // If we have existing rats to preserve rotation from
+            if (oldRats && oldRats.length > 0) {
+                newRats.forEach((newRat, index) => {
+                    if (index < oldRats.length) {
+                        // Get current rotation of old rat
+                        const currentRotation = getCurrentRotation(oldRats[index]);
+                        
+                        // Apply current rotation as starting point
+                        newRat.style.transform = `rotate(${currentRotation}deg)`;
+                        
+                        // Force a reflow to ensure the initial transform is applied
+                        newRat.offsetHeight;
+                        
+                        // Then resume animation from current position
+                        newRat.style.animation = 'none';
+                        setTimeout(() => {
+                            newRat.style.animation = `spin ${1/currentSpeed}s linear infinite`;
+                        }, 10);
+                    }
+                });
+            }
+        }
+        
+        // Function to update rats display while preserving rotation
         function updateRatsDisplay() {
-            // Clear existing rats
-            ratContainer.innerHTML = '';
+            // Store current rats for rotation preservation
+            const currentRats = Array.from(ratContainer.querySelectorAll('.rat'));
+            
+            // Create new container content
+            const newContent = document.createElement('div');
+            newContent.className = 'rat-container';
             
             // Create rats based on current count
             for (let i = 0; i < ratCount; i++) {
@@ -395,8 +444,17 @@
                     newRat.style.top = `${pos.y}px`;
                 }
                 
-                ratContainer.appendChild(newRat);
+                newContent.appendChild(newRat);
             }
+            
+            // Replace content
+            ratContainer.innerHTML = '';
+            Array.from(newContent.children).forEach(child => {
+                ratContainer.appendChild(child);
+            });
+            
+            // Preserve rotation states
+            preserveRotationState(currentRats, ratContainer);
         }
         
         // Update mode effects based on current viewer count
@@ -405,41 +463,53 @@
             
             if (isRatsMode) {
                 // Rats mode: add more actual rats
-                ratCount = 1 + bonusLevels;
-                updateRatsDisplay();
+                const newRatCount = 1 + bonusLevels;
+                if (newRatCount !== ratCount) {
+                    ratCount = newRatCount;
+                    updateRatsDisplay();
+                }
             } else {
                 // Speed mode: increase speed by 10% per 10 viewers
-                currentSpeed = 1 + (bonusLevels * 0.1);
-                // Update all existing rats' speed
-                const allRats = ratContainer.querySelectorAll('.rat');
-                allRats.forEach(rat => {
-                    rat.style.animationDuration = `${1/currentSpeed}s`;
-                });
+                const newSpeed = 1 + (bonusLevels * 0.1);
+                if (newSpeed !== currentSpeed) {
+                    currentSpeed = newSpeed;
+                    // Update all existing rats' speed while preserving rotation
+                    const allRats = ratContainer.querySelectorAll('.rat');
+                    allRats.forEach(rat => {
+                        const currentRotation = getCurrentRotation(rat);
+                        rat.style.transform = `rotate(${currentRotation}deg)`;
+                        rat.style.animation = 'none';
+                        setTimeout(() => {
+                            rat.style.animation = `spin ${1/currentSpeed}s linear infinite`;
+                        }, 10);
+                    });
+                }
             }
         }
         
-        // Mode toggle functionality
+        // Mode toggle functionality with smooth transition
         if (modeToggleBtn) {
             modeToggleBtn.addEventListener('click', () => {
+                // Store current rat states before switching
+                const currentRats = Array.from(ratContainer.querySelectorAll('.rat'));
+                
                 isRatsMode = !isRatsMode;
                 
                 if (isRatsMode) {
                     modeToggleBtn.className = 'control-btn rats-mode';
                     modeText.textContent = 'Rats Mode';
                     modeInfo.textContent = '(+1 rat per 10 online)';
-                    // Reset speed to normal for all rats
+                    // Reset speed to normal
                     currentSpeed = 1;
-                    updateRatsDisplay();
                 } else {
                     modeToggleBtn.className = 'control-btn speed-mode';
                     modeText.textContent = 'Speed Mode';
                     modeInfo.textContent = '(+10% speed per 10 online)';
                     // Reset to single rat
                     ratCount = 1;
-                    updateRatsDisplay();
                 }
                 
-                // Apply current effects
+                // Apply mode effects with preserved rotation
                 updateModeEffects();
                 
                 ratScore += 1;
