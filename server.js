@@ -78,6 +78,40 @@ if (gameData.lastReset !== today) {
   saveData(gameData);
 }
 
+// Function to update user's rat time
+const updateUserRatTime = (userId) => {
+  if (gameData.users[userId] && gameData.users[userId].currentSessionStart) {
+    const sessionTime = Date.now() - gameData.users[userId].currentSessionStart;
+    const sessionMinutes = Math.floor(sessionTime / 60000);
+    
+    // Add session minutes to total rat time
+    gameData.users[userId].totalRatMinutes = (gameData.users[userId].totalRatMinutes || 0) + sessionMinutes;
+    
+    // Reset session start for next calculation
+    gameData.users[userId].currentSessionStart = Date.now();
+    
+    saveData(gameData);
+    return gameData.users[userId].totalRatMinutes;
+  }
+  return 0;
+};
+
+// Auto-save user progress every minute
+setInterval(() => {
+  let updated = false;
+  Object.keys(gameData.users).forEach(userId => {
+    if (gameData.users[userId].currentSessionStart) {
+      updateUserRatTime(userId);
+      updated = true;
+    }
+  });
+  
+  if (updated) {
+    // Broadcast updated leaderboard to all connected clients
+    io.emit('leaderboardUpdate', getLeaderboard());
+  }
+}, 60000); // Every minute
+
 // Express middleware setup (MUST be before Passport)
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -102,13 +136,17 @@ passport.serializeUser((user, done) => {
 
 passport.deserializeUser((id, done) => {
   console.log('Deserializing user:', id);
-  // In a real app, you'd fetch user from database
-  // For now, we'll reconstruct from our game data
-  const userData = Object.values(gameData.users).find(u => u.discordId === id);
+  // Fetch user from our game data
+  const userData = gameData.users[id];
   if (userData) {
-    done(null, { id: id, username: userData.name });
+    done(null, { 
+      id: id, 
+      username: userData.name,
+      totalRatMinutes: userData.totalRatMinutes || 0,
+      isLoggedIn: userData.isLoggedIn || false
+    });
   } else {
-    done(null, { id: id, username: 'Unknown' });
+    done(null, null);
   }
 });
 
@@ -121,11 +159,6 @@ passport.use(new DiscordStrategy({
 }, async (accessToken, refreshToken, profile, done) => {
   try {
     console.log('Discord OAuth successful for user:', profile.username);
-    console.log('Profile data:', {
-      id: profile.id,
-      username: profile.username,
-      discriminator: profile.discriminator
-    });
     return done(null, profile);
   } catch (error) {
     console.error('Discord OAuth error:', error);
@@ -168,8 +201,14 @@ io.on('connection', (socket) => {
 
 const getLeaderboard = () => {
   return Object.values(gameData.users)
-    .sort((a, b) => b.points - a.points)
-    .slice(0, 10);
+    .filter(user => user.isLoggedIn && user.totalRatMinutes > 0)
+    .sort((a, b) => b.totalRatMinutes - a.totalRatMinutes)
+    .slice(0, 10)
+    .map(user => ({
+      name: user.name,
+      points: user.totalRatMinutes,
+      discordId: user.discordId
+    }));
 };
 
 // Create leaderboard embed
@@ -182,7 +221,7 @@ const createLeaderboardEmbed = () => {
     .setTimestamp();
 
   if (leaderboard.length === 0) {
-    embed.setDescription('No users on the leaderboard yet! Login at rats-kruv.onrender.com to start earning points!');
+    embed.setDescription('No users on the leaderboard yet! Login at rats-kruv.onrender.com to start earning rat time!');
   } else {
     const leaderboardText = leaderboard.map((user, index) => {
       const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}.`;
@@ -236,19 +275,23 @@ const updateLeaderboardMessage = async () => {
 };
 
 // Send webhook announcement with better error handling
-const sendWebhookAnnouncement = async (username) => {
+const sendWebhookAnnouncement = async (username, isFirstTime = false) => {
   if (!config.webhook_url) return;
+
+  const message = isFirstTime 
+    ? `🧀 **${username}** joined the rat zone for the first time! Welcome to the spinning madness! 🐀`
+    : `🐀 **${username}** is back in the rat zone! Time to accumulate more rat minutes! 🧀`;
 
   try {
     const response = await fetch(config.webhook_url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        content: `🧀 **${username}** joined the rat zone! Welcome to the spinning madness! 🐀`,
+        content: message,
         embeds: [{
-          title: "New Rat Spinner!",
-          description: `${username} has entered the rat dimension. Time to spin those rats!`,
-          color: 0x4CAF50,
+          title: isFirstTime ? "New Rat Spinner!" : "Returning Rat Spinner!",
+          description: `${username} ${isFirstTime ? 'has entered' : 'is back in'} the rat dimension. Time to spin those rats!`,
+          color: isFirstTime ? 0x4CAF50 : 0x2196F3,
           timestamp: new Date().toISOString(),
           footer: {
             text: "spinningrat.online"
@@ -370,14 +413,53 @@ app.get('/auth/discord/callback',
   }),
   (req, res) => {
     console.log('Discord auth callback successful for user:', req.user.username);
-    console.log('User object:', req.user);
-    console.log('Session after auth:', req.session);
+    
+    // Handle user login and time tracking
+    const userId = req.user.id;
+    const username = req.user.username;
+    const isFirstTime = !gameData.users[userId];
+    
+    if (!gameData.users[userId]) {
+      // New user - create profile
+      gameData.users[userId] = { 
+        name: username, 
+        totalRatMinutes: 0,
+        discordId: userId,
+        isLoggedIn: true,
+        currentSessionStart: Date.now(),
+        firstLogin: new Date().toISOString()
+      };
+      console.log('New user registered:', username);
+    } else {
+      // Existing user - mark as logged in and start new session
+      gameData.users[userId].isLoggedIn = true;
+      gameData.users[userId].currentSessionStart = Date.now();
+      gameData.users[userId].name = username; // Update name in case it changed
+      console.log('Existing user logged back in:', username);
+    }
+    
+    saveData(gameData);
+    
+    // Send webhook announcement
+    sendWebhookAnnouncement(username, isFirstTime);
+    
     res.redirect('/');
   }
 );
 
 app.get('/logout', (req, res) => {
+  const userId = req.user ? req.user.id : null;
   const username = req.user ? req.user.username : 'Unknown';
+  
+  // Update final rat time before logout
+  if (userId && gameData.users[userId]) {
+    updateUserRatTime(userId);
+    gameData.users[userId].isLoggedIn = false;
+    gameData.users[userId].currentSessionStart = null;
+    saveData(gameData);
+    console.log(`User ${username} logged out with ${gameData.users[userId].totalRatMinutes} total rat minutes`);
+  }
+  
   req.logout((err) => {
     if (err) {
       console.error('Logout error:', err);
@@ -393,13 +475,30 @@ app.get('/logout', (req, res) => {
   });
 });
 
+// API endpoint to get current user's rat time
+app.get('/api/user/rattime', (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.json({ ratMinutes: 0, isLoggedIn: false });
+  }
+  
+  const userId = req.user.id;
+  const currentRatTime = updateUserRatTime(userId);
+  
+  res.json({ 
+    ratMinutes: currentRatTime, 
+    isLoggedIn: true,
+    username: req.user.username
+  });
+});
+
 // Debug route to check session
 app.get('/debug/session', (req, res) => {
   res.json({
     isAuthenticated: req.isAuthenticated(),
     user: req.user,
     session: req.session,
-    sessionID: req.sessionID
+    sessionID: req.sessionID,
+    userData: req.user ? gameData.users[req.user.id] : null
   });
 });
 
@@ -408,29 +507,13 @@ app.get('/', (req, res) => {
   try {
     console.log('Main route accessed');
     console.log('Is authenticated:', req.isAuthenticated());
-    console.log('User:', req.user);
-    console.log('Session:', req.session);
     
     const user = req.user;
+    let currentUserRatTime = 0;
+    
     if (user) {
-      if (!gameData.users[user.id]) {
-        gameData.users[user.id] = { 
-          name: user.username, 
-          points: 0, 
-          loginTime: Date.now(),
-          discordId: user.id
-        };
-
-        console.log('New user registered:', user.username);
-        // Send webhook announcement for new users
-        sendWebhookAnnouncement(user.username);
-      } else {
-        // Update points based on time spent
-        const minutes = Math.floor((Date.now() - gameData.users[user.id].loginTime) / 60000);
-        gameData.users[user.id].points = Math.max(gameData.users[user.id].points, minutes);
-        gameData.users[user.id].loginTime = Date.now(); // Reset login time
-      }
-      saveData(gameData);
+      // Update user's current rat time
+      currentUserRatTime = updateUserRatTime(user.id);
     }
 
     const leaderboard = getLeaderboard();
@@ -441,6 +524,7 @@ app.get('/', (req, res) => {
       users: gameData.users,
       dailyHighscore: gameData.dailyHighscore,
       activeViewers: gameData.activeViewers,
+      currentUserRatTime,
       error: req.query.error
     });
   } catch (error) {
