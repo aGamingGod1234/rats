@@ -2,7 +2,7 @@
   "client_id": "1376042613626638450",
   "client_secret": "OZ2n9ItZfbt9X-NQSwqnUTcahjSrvu6O",
   "bot_token": "YOUR_DISCORD_BOT_TOKEN_HERE",
-  "callback_url": "https://rats-kruv.onrender.com/callback",
+  "callback_url": "https://rats-kruv.onrender.com/auth/discord/callback",
   "session_secret": "super_secret_session_key",
   "webhook_url": "https://discord.com/api/webhooks/1374375044373020755/Rl-LOA6_UtLZqp04Ko-Updw1pFvIiHItfWzCbQnyFxUF3Ka_NsZIjZbogUoCXn1uPSIH"
 }

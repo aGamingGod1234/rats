@@ -20,7 +20,12 @@ if (process.env.WEBHOOK_URL) config.webhook_url = process.env.WEBHOOK_URL;
 
 const app = express();
 const server = http.createServer(app);
-const io = socketIo(server);
+const io = socketIo(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
 
 // Discord Bot Setup
 const client = new Client({
@@ -73,15 +78,38 @@ if (gameData.lastReset !== today) {
   saveData(gameData);
 }
 
+// Express middleware setup (MUST be before Passport)
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Session configuration with better security
+app.use(session({
+  secret: config.session_secret,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: false, // Set to false for HTTP in development, true for HTTPS in production
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }
+}));
+
 // Passport configuration with better error handling
 passport.serializeUser((user, done) => {
   console.log('Serializing user:', user.id);
-  done(null, user);
+  done(null, user.id);
 });
 
-passport.deserializeUser((obj, done) => {
-  console.log('Deserializing user:', obj.id);
-  done(null, obj);
+passport.deserializeUser((id, done) => {
+  console.log('Deserializing user:', id);
+  // In a real app, you'd fetch user from database
+  // For now, we'll reconstruct from our game data
+  const userData = Object.values(gameData.users).find(u => u.discordId === id);
+  if (userData) {
+    done(null, { id: id, username: userData.name });
+  } else {
+    done(null, { id: id, username: 'Unknown' });
+  }
 });
 
 // Discord OAuth Strategy with better error handling
@@ -93,21 +121,15 @@ passport.use(new DiscordStrategy({
 }, async (accessToken, refreshToken, profile, done) => {
   try {
     console.log('Discord OAuth successful for user:', profile.username);
+    console.log('Profile data:', {
+      id: profile.id,
+      username: profile.username,
+      discriminator: profile.discriminator
+    });
     return done(null, profile);
   } catch (error) {
     console.error('Discord OAuth error:', error);
     return done(error, null);
-  }
-}));
-
-// Session configuration with better security
-app.use(session({
-  secret: config.session_secret,
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    secure: process.env.NODE_ENV === 'production', // Only use secure cookies in production
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
   }
 }));
 
@@ -156,11 +178,11 @@ const createLeaderboardEmbed = () => {
   const embed = new EmbedBuilder()
     .setTitle('🐀 Spinning Rats Leaderboard')
     .setColor('#FFD700')
-    .setURL('https://spinningrats.onrender.com/')
+    .setURL('https://rats-kruv.onrender.com/')
     .setTimestamp();
 
   if (leaderboard.length === 0) {
-    embed.setDescription('No users on the leaderboard yet! Login at spinningrats.onrender.com to start earning points!');
+    embed.setDescription('No users on the leaderboard yet! Login at rats-kruv.onrender.com to start earning points!');
   } else {
     const leaderboardText = leaderboard.map((user, index) => {
       const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}.`;
@@ -172,7 +194,7 @@ const createLeaderboardEmbed = () => {
 
   embed.addFields(
     { name: '📊 Stats', value: `Daily Highscore: ${gameData.dailyHighscore}\nActive Viewers: ${gameData.activeViewers}`, inline: true },
-    { name: '🌐 Visit', value: '[spinningrat.online](https://spinningrats.onrender.com/)', inline: true }
+    { name: '🌐 Visit', value: '[spinningrats.online](https://rats-kruv.onrender.com/)', inline: true }
   );
 
   return embed;
@@ -326,19 +348,30 @@ if (config.bot_token && config.bot_token !== 'YOUR_DISCORD_BOT_TOKEN_HERE') {
   console.log('💡 Add BOT_TOKEN environment variable or update config.json to enable Discord features');
 }
 
-// Auth routes with better error handling
+// Auth routes with better error handling and debugging
 app.get('/auth/discord', (req, res, next) => {
   console.log('Discord auth initiated');
-  passport.authenticate('discord')(req, res, next);
+  console.log('Session ID:', req.sessionID);
+  passport.authenticate('discord', {
+    scope: ['identify']
+  })(req, res, next);
 });
 
 app.get('/auth/discord/callback',
+  (req, res, next) => {
+    console.log('Discord callback received');
+    console.log('Query params:', req.query);
+    console.log('Session ID:', req.sessionID);
+    next();
+  },
   passport.authenticate('discord', { 
-    failureRedirect: '/',
+    failureRedirect: '/?error=auth_failed',
     failureFlash: false 
   }),
   (req, res) => {
     console.log('Discord auth callback successful for user:', req.user.username);
+    console.log('User object:', req.user);
+    console.log('Session after auth:', req.session);
     res.redirect('/');
   }
 );
@@ -351,20 +384,41 @@ app.get('/logout', (req, res) => {
     } else {
       console.log('User logged out:', username);
     }
-    res.redirect('/');
+    req.session.destroy((err) => {
+      if (err) {
+        console.error('Session destroy error:', err);
+      }
+      res.redirect('/');
+    });
+  });
+});
+
+// Debug route to check session
+app.get('/debug/session', (req, res) => {
+  res.json({
+    isAuthenticated: req.isAuthenticated(),
+    user: req.user,
+    session: req.session,
+    sessionID: req.sessionID
   });
 });
 
 // Main route with better error handling
 app.get('/', (req, res) => {
   try {
+    console.log('Main route accessed');
+    console.log('Is authenticated:', req.isAuthenticated());
+    console.log('User:', req.user);
+    console.log('Session:', req.session);
+    
     const user = req.user;
     if (user) {
       if (!gameData.users[user.id]) {
         gameData.users[user.id] = { 
           name: user.username, 
           points: 0, 
-          loginTime: Date.now() 
+          loginTime: Date.now(),
+          discordId: user.id
         };
 
         console.log('New user registered:', user.username);
@@ -386,18 +440,19 @@ app.get('/', (req, res) => {
       leaderboard, 
       users: gameData.users,
       dailyHighscore: gameData.dailyHighscore,
-      activeViewers: gameData.activeViewers
+      activeViewers: gameData.activeViewers,
+      error: req.query.error
     });
   } catch (error) {
     console.error('Error in main route:', error);
-    res.status(500).send('Internal Server Error');
+    res.status(500).send('Internal Server Error: ' + error.message);
   }
 });
 
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Express error:', err);
-  res.status(500).send('Something went wrong!');
+  res.status(500).send('Something went wrong! ' + err.message);
 });
 
 const PORT = process.env.PORT || 3000;
@@ -405,4 +460,9 @@ server.listen(PORT, () => {
   console.log(`🐀 Rats are spinning on port ${PORT}!`);
   console.log(`🌐 Visit: http://localhost:${PORT}`);
   console.log('🔧 Make sure your Discord OAuth2 redirect URI is set to:', config.callback_url);
+  console.log('🔧 Config check:');
+  console.log('  - Client ID:', config.client_id ? 'Set' : 'Missing');
+  console.log('  - Client Secret:', config.client_secret ? 'Set' : 'Missing');
+  console.log('  - Callback URL:', config.callback_url);
+  console.log('  - Session Secret:', config.session_secret ? 'Set' : 'Missing');
 });
